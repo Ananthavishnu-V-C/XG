@@ -1,0 +1,632 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>xG Pitch Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=IBM+Plex+Mono:wght@500&family=Public+Sans:wght@400;600&display=swap">
+<style>
+/* Layout: the pitch is the stage on the left; readout, controls and factor breakdown stack in a side rail. One column below 900px. */
+:root {
+  --bg: #edf0ea;
+  --surface: #f8faf5;
+  --field: #e4eae0;
+  --fg: #14211a;
+  --muted: #566559;
+  --line: #cdd6ca;
+  --accent: #ffb000;
+  --accent-ink: #1b1300;
+  --up: #17803f;
+  --down: #c23b22;
+  --grass-a: #2f6e48;
+  --grass-b: #2a6342;
+  --apron: #235238;
+  --chalk: rgba(255, 255, 255, 0.88);
+  --def: #ff6a55;
+  --gk: #59b8ff;
+  --font-display: 'Big Shoulders Display', 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --font-body: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1410;
+    --surface: #151f19;
+    --field: #1d2a22;
+    --fg: #e7efe8;
+    --muted: #8fa395;
+    --line: #27372c;
+    --up: #4bd07f;
+    --down: #ff7a62;
+    --grass-a: #2a6041;
+    --grass-b: #255538;
+    --apron: #1d4530;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1410;
+  --surface: #151f19;
+  --field: #1d2a22;
+  --fg: #e7efe8;
+  --muted: #8fa395;
+  --line: #27372c;
+  --up: #4bd07f;
+  --down: #ff7a62;
+  --grass-a: #2a6041;
+  --grass-b: #255538;
+  --apron: #1d4530;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.5 var(--font-body);
+  padding-block: 28px 56px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1180px; margin-inline: auto; }
+.top { margin-bottom: 20px; }
+h1 {
+  font: 800 clamp(2.6rem, 7vw, 4.4rem)/0.92 var(--font-display);
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  margin: 0 0 10px;
+  text-wrap: balance;
+}
+.lede { margin: 0; max-width: 56ch; color: var(--muted); }
+
+.grid { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) {
+  .grid { grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+}
+.stage, .rail { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+
+/* pitch */
+.pitchbox {
+  position: relative;
+  width: min(100%, calc(var(--ar) * 640px));
+  aspect-ratio: var(--ar);
+  margin-inline: auto;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+#pitch { display: block; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+#pitch:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 2;
+  background: var(--fg); color: var(--bg);
+  font: 500 12px/1 var(--font-mono);
+  padding: 4px 7px; border-radius: 4px;
+  transform: translate(12px, -140%);
+  white-space: nowrap;
+}
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.toolbar .spacer { flex: 1 1 0; }
+.logline { font: 500 12px/1.2 var(--font-mono); color: var(--muted); }
+
+.legend { display: flex; flex-direction: column; gap: 6px; }
+.legend-title, .eyebrow, legend, .rowhead label, dt, .ef-k {
+  font: 500 11px/1.2 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.legend-bar {
+  position: relative; height: 12px; border-radius: 3px;
+  background-color: var(--grass-a);
+  border: 1px solid var(--line);
+}
+.legend-ticks { position: relative; height: 16px; }
+.legend-ticks span {
+  position: absolute; top: 0; transform: translateX(-50%);
+  font: 500 11px/1.2 var(--font-mono); color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.legend-ticks span:last-child { transform: translateX(-100%); }
+
+/* controls */
+.seg {
+  display: inline-flex; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--field); overflow: hidden;
+}
+.seg label { position: relative; cursor: pointer; flex: 1 1 auto; text-align: center; }
+.seg label + label { border-left: 1px solid var(--line); }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg span { display: block; padding: 7px 11px; font-size: 13px; white-space: nowrap; }
+.seg input:checked + span { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.seg input:focus-visible + span { outline: 2px solid var(--fg); outline-offset: -3px; }
+.rail .seg { display: flex; }
+.rail .seg span { padding-inline: 6px; }
+
+.btn {
+  font: inherit; font-size: 13px; color: var(--fg);
+  background: var(--field); border: 1px solid var(--line);
+  border-radius: 6px; padding: 7px 12px; cursor: pointer;
+}
+.btn:hover { border-color: var(--fg); }
+.btn:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 10px; padding: 16px;
+}
+.readout .big {
+  font: 800 6.4rem/0.85 var(--font-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  margin: 8px 0 12px;
+}
+.tier { display: flex; align-items: center; gap: 12px; font-weight: 600; }
+.meter { display: inline-flex; gap: 3px; }
+.meter i { width: 20px; height: 6px; border-radius: 2px; background: var(--line); }
+.meter i.on { background: var(--accent); }
+.odds { margin: 8px 0 14px; color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.stats div { border-top: 1px solid var(--line); padding-top: 8px; }
+.stats dd { margin: 4px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+form.controls { display: flex; flex-direction: column; gap: 16px; }
+fieldset { border: 0; padding: 0; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+fieldset:disabled { opacity: 0.4; }
+legend { padding: 0; margin-bottom: 6px; }
+.rowhead { display: flex; justify-content: space-between; align-items: baseline; }
+.rowhead output { font: 600 14px/1 var(--font-body); font-variant-numeric: tabular-nums; }
+select {
+  width: 100%; font: inherit; font-size: 14px; color: var(--fg);
+  background: var(--field); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 10px;
+}
+select:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+#mods { display: flex; flex-direction: column; gap: 16px; }
+
+input[type="range"] { width: 100%; margin: 4px 0; background: transparent; appearance: none; -webkit-appearance: none; height: 22px; }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; background: var(--line); border-radius: 2px; }
+input[type="range"]::-moz-range-track { height: 4px; background: var(--line); border-radius: 2px; }
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 20px; height: 20px; margin-top: -8px;
+  border-radius: 50%; background: var(--accent); border: 2px solid var(--fg);
+}
+input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--fg); }
+input[type="range"]:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: 4px; }
+
+.card h2 { font: 700 1.5rem/1 var(--font-display); text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 6px; }
+#effects { list-style: none; margin: 0; padding: 0; }
+#effects li { padding: 9px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
+#effects li:first-child { border-top: 0; }
+.ef-name { font-weight: 600; font-size: 14px; }
+.ef-val { font: 500 13px/1.4 var(--font-mono); font-variant-numeric: tabular-nums; }
+.ef-val.up { color: var(--up); }
+.ef-val.down { color: var(--down); }
+.trk { grid-column: 1 / -1; position: relative; height: 6px; background: var(--field); border-radius: 3px; }
+.trk::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); opacity: 0.6; }
+.trk b { position: absolute; top: 0; height: 100%; border-radius: 3px; }
+.trk b.up { background: var(--up); }
+.trk b.down { background: var(--down); }
+.note { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+
+details.about { font-size: 13px; color: var(--muted); }
+details.about summary { cursor: pointer; font-weight: 600; color: var(--fg); }
+details.about p { margin: 8px 0 0; }
+</style>
+
+<main class="wrap">
+  <header class="top">
+    <h1>xG Pitch Lab</h1>
+    <p class="lede">Click or drag on the pitch to place a shot at the goal on the right. Change how the chance arises and watch the expected goals value respond.</p>
+  </header>
+
+  <div class="grid">
+    <section class="stage" aria-label="Pitch">
+      <div class="pitchbox" id="pitchbox" style="--ar: 1.4933">
+        <svg id="pitch" viewBox="-3.5 -3.5 112 75" tabindex="0" role="application"
+             aria-label="Football pitch. Use arrow keys to move the shot position; hold Shift for larger steps."></svg>
+        <div class="tip" id="tip" hidden></div>
+      </div>
+
+      <div class="toolbar">
+        <div class="seg" role="radiogroup" aria-label="Pitch view">
+          <label><input type="radio" name="view" value="full"><span>Full pitch</span></label>
+          <label><input type="radio" name="view" value="half"><span>Attacking half</span></label>
+        </div>
+        <div class="seg"><label><input type="checkbox" id="heatOn" checked><span>xG map</span></label></div>
+        <span class="spacer"></span>
+        <button type="button" class="btn primary" id="logBtn">Log this shot</button>
+        <button type="button" class="btn" id="clearBtn">Clear</button>
+      </div>
+      <div class="logline" id="logline">0 shots logged</div>
+
+      <div class="legend" id="legend">
+        <span class="legend-title">xG if the shot is taken from each spot</span>
+        <div class="legend-bar" id="legendBar"></div>
+        <div class="legend-ticks" id="legendTicks"></div>
+      </div>
+    </section>
+
+    <aside class="rail">
+      <section class="card readout" aria-live="polite">
+        <div class="eyebrow">Expected goals</div>
+        <div class="big" id="xgVal">0.00</div>
+        <div class="tier"><span id="tierName">Half chance</span><span class="meter" id="meter"><i></i><i></i><i></i><i></i><i></i></span></div>
+        <p class="odds" id="odds"></p>
+        <dl class="stats">
+          <div><dt>Distance</dt><dd id="sDist"></dd></div>
+          <div><dt>Goal angle</dt><dd id="sAng"></dd></div>
+          <div><dt>Off centre</dt><dd id="sOff"></dd></div>
+        </dl>
+      </section>
+
+      <section class="card">
+        <form class="controls" id="controls" onsubmit="return false">
+          <fieldset>
+            <legend>How the chance arises</legend>
+            <select id="situation" name="situation" aria-label="Situation">
+              <option value="open">Open play</option>
+              <option value="through">Through ball</option>
+              <option value="cutback">Cut-back</option>
+              <option value="cross">Cross</option>
+              <option value="counter">Counter-attack</option>
+              <option value="rebound">Rebound</option>
+              <option value="setpiece">Corner or set piece</option>
+              <option value="fk">Direct free kick</option>
+              <option value="penalty">Penalty kick</option>
+            </select>
+          </fieldset>
+          <fieldset id="mods">
+            <fieldset>
+              <legend>Body part</legend>
+              <div class="seg" role="radiogroup">
+                <label><input type="radio" name="part" value="strong"><span>Strong foot</span></label>
+                <label><input type="radio" name="part" value="weak"><span>Weak foot</span></label>
+                <label><input type="radio" name="part" value="head"><span>Header</span></label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <div class="rowhead"><label for="defenders">Defenders in the shot lane</label><output id="defOut">1</output></div>
+              <input type="range" id="defenders" name="defenders" min="0" max="5" step="1" value="1">
+            </fieldset>
+            <fieldset>
+              <legend>Pressure on the shooter</legend>
+              <div class="seg" role="radiogroup">
+                <label><input type="radio" name="pressure" value="none"><span>None</span></label>
+                <label><input type="radio" name="pressure" value="light"><span>Light</span></label>
+                <label><input type="radio" name="pressure" value="heavy"><span>Heavy</span></label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Goalkeeper</legend>
+              <div class="seg" role="radiogroup">
+                <label><input type="radio" name="keeper" value="set"><span>Set</span></label>
+                <label><input type="radio" name="keeper" value="off"><span>Off line</span></label>
+                <label><input type="radio" name="keeper" value="out"><span>Stranded</span></label>
+              </div>
+            </fieldset>
+          </fieldset>
+          <button type="button" class="btn" id="resetBtn">Reset</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>What is moving it</h2>
+        <ul id="effects"></ul>
+        <p class="note" id="effectsNote"></p>
+      </section>
+
+      <details class="about">
+        <summary>About the model</summary>
+        <p>xG is a logistic function of shot distance, the angle between the posts, and sideways offset, with adjustments for body part, how the chance arises, defenders in the lane, pressure and goalkeeper position. The coefficients are set by hand so common spots land near typical open-play values (about 0.15 from the penalty spot area, about 0.06 from 20 m, close to 0.45 in the six-yard box). A penalty kick is fixed at 0.78. It is a teaching model and is not fitted to any data provider's shots.</p>
+      </details>
+    </aside>
+  </div>
+</main>
+
+<script>
+(function () {
+  var W = 105, H = 68, GY = 34, POST = 3.66;
+  var VIEWS = {
+    full: { x: -3.5, y: -3.5, w: 112, h: 75 },
+    half: { x: 49.5, y: -3.5, w: 59, h: 75 }
+  };
+  var DEFAULTS = { x: 89, y: 38, part: 'strong', sit: 'open', def: 1, press: 'light', gk: 'set' };
+  var state = Object.assign({ heat: true, view: window.innerWidth < 640 ? 'half' : 'full', log: [] }, DEFAULTS);
+
+  var MOD = {
+    part: { strong: 0, weak: -0.3, head: -0.85 },
+    sit: { open: 0, through: 0.5, cutback: 0.45, cross: -0.2, counter: 0.3, rebound: 0.5, setpiece: -0.25, fk: 0, penalty: 0 },
+    press: { none: 0.3, light: 0, heavy: -0.5 },
+    gk: { set: 0, off: 0.3, out: 1.0 }
+  };
+  var LAB = {
+    part: { strong: 'Strong foot', weak: 'Weak foot', head: 'Header' },
+    sit: { open: 'Open play', through: 'Through ball', cutback: 'Cut-back', cross: 'Cross', counter: 'Counter-attack', rebound: 'Rebound', setpiece: 'Corner or set piece', fk: 'Direct free kick', penalty: 'Penalty kick' },
+    press: { none: 'No pressure', light: 'Light pressure', heavy: 'Heavy pressure' },
+    gk: { set: 'Set', off: 'Off his line', out: 'Stranded' }
+  };
+  var NEUTRAL = { part: 'strong', sit: 'open', def: 1, press: 'light', gk: 'set' };
+  var PEN = { x: 94, y: 34 };
+
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function opts() { return { part: state.part, sit: state.sit, def: state.def, press: state.press, gk: state.gk }; }
+
+  function geom(x, y) {
+    var dx = Math.max(W - x, 0.01), dy = GY - y;
+    var d = Math.hypot(dx, dy);
+    var a = Math.atan2(2 * POST * dx, dx * dx + dy * dy - POST * POST);
+    return { d: d, a: a, dy: dy, dx: dx };
+  }
+  function xgAt(x, y, o) {
+    if (o.sit === 'penalty') return 0.78;
+    var g = geom(x, y);
+    var a = Math.min(g.a, 1.5);
+    var z = -2.06 - 0.0689 * g.d + 1.915 * a - 0.06 * Math.abs(g.dy)
+      + MOD.part[o.part] + MOD.sit[o.sit] + (0.3 - 0.4 * o.def) + MOD.press[o.press] + MOD.gk[o.gk];
+    return Math.min(0.95, 1 / (1 + Math.exp(-z)));
+  }
+  function pos() { return state.sit === 'penalty' ? PEN : { x: state.x, y: state.y }; }
+  function fmt(p) { return p < 0.005 ? '<0.01' : p.toFixed(2); }
+
+  var $ = function (id) { return document.getElementById(id); };
+  var svg = $('pitch'), box = $('pitchbox'), tip = $('tip');
+  var vb = VIEWS[state.view];
+
+  /* ---------- static pitch ---------- */
+  var s = '<rect x="-3.5" y="-3.5" width="112" height="75" fill="var(--apron)"/>';
+  for (var i = 0; i < 12; i++) {
+    s += '<rect x="' + (i * 8.75) + '" y="0" width="8.75" height="68" fill="' + (i % 2 ? 'var(--grass-b)' : 'var(--grass-a)') + '"/>';
+  }
+  s += '<image id="heat" x="0" y="0" width="105" height="68" preserveAspectRatio="none" visibility="hidden"/>';
+  s += '<g fill="none" stroke="var(--chalk)" stroke-width="0.28">'
+    + '<rect x="0" y="0" width="105" height="68"/>'
+    + '<line x1="52.5" y1="0" x2="52.5" y2="68"/>'
+    + '<circle cx="52.5" cy="34" r="9.15"/>'
+    + '<rect x="0" y="13.84" width="16.5" height="40.32"/><rect x="88.5" y="13.84" width="16.5" height="40.32"/>'
+    + '<rect x="0" y="24.84" width="5.5" height="18.32"/><rect x="99.5" y="24.84" width="5.5" height="18.32"/>'
+    + '<path d="M16.5 26.688A9.15 9.15 0 0 1 16.5 41.312"/><path d="M88.5 26.688A9.15 9.15 0 0 0 88.5 41.312"/>'
+    + '<path d="M0 1A1 1 0 0 0 1 0"/><path d="M104 0A1 1 0 0 0 105 1"/><path d="M105 67A1 1 0 0 0 104 68"/><path d="M1 68A1 1 0 0 0 0 67"/>'
+    + '<rect x="105" y="30.34" width="2.2" height="7.32" fill="rgba(255,255,255,0.14)"/>'
+    + '<rect x="-2.2" y="30.34" width="2.2" height="7.32" fill="rgba(255,255,255,0.14)"/>'
+    + '</g>'
+    + '<g fill="var(--chalk)"><circle cx="52.5" cy="34" r="0.4"/><circle cx="11" cy="34" r="0.4"/><circle cx="94" cy="34" r="0.4"/></g>';
+  s += '<g id="dyn"></g>';
+  svg.innerHTML = s;
+  var dyn = $('dyn'), heatEl = $('heat');
+
+  /* ---------- heat map ---------- */
+  var hc = document.createElement('canvas');
+  hc.width = 210; hc.height = 136;
+  var hctx = hc.getContext('2d');
+  var himg = hctx.createImageData(210, 136);
+  function tOf(p) { return Math.min(1, Math.pow(p / 0.5, 0.6)); }
+  function colorAt(t) {
+    var a = Math.max(0, Math.min(1, (t - 0.1) / 0.9)) * 0.85;
+    return [255, Math.round(70 + 180 * t), Math.round(20 + 170 * t * t), a];
+  }
+  var heatQueued = false;
+  function queueHeat() {
+    if (heatQueued) return;
+    heatQueued = true;
+    requestAnimationFrame(function () { heatQueued = false; renderHeat(); });
+  }
+  function renderHeat() {
+    var show = state.heat && state.sit !== 'penalty';
+    $('legend').hidden = !show;
+    if (!show) { heatEl.setAttribute('visibility', 'hidden'); return; }
+    var o = opts(), d = himg.data, k = 0;
+    for (var py = 0; py < 136; py++) {
+      for (var px = 0; px < 210; px++) {
+        var c = colorAt(tOf(xgAt((px + 0.5) / 2, (py + 0.5) / 2, o)));
+        d[k++] = c[0]; d[k++] = c[1]; d[k++] = c[2]; d[k++] = Math.round(c[3] * 255);
+      }
+    }
+    hctx.putImageData(himg, 0, 0);
+    heatEl.setAttribute('href', hc.toDataURL('image/png'));
+    heatEl.setAttribute('visibility', 'visible');
+  }
+  (function buildLegend() {
+    var stops = [];
+    for (var i = 0; i <= 12; i++) {
+      var c = colorAt(i / 12);
+      stops.push('rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + c[3].toFixed(3) + ') ' + Math.round(i / 12 * 100) + '%');
+    }
+    $('legendBar').style.backgroundImage = 'linear-gradient(to right,' + stops.join(',') + ')';
+    var ticks = [0.01, 0.05, 0.1, 0.2, 0.3, 0.5], h = '';
+    ticks.forEach(function (p, i) {
+      h += '<span style="left:' + (tOf(p) * 100).toFixed(1) + '%">' + p.toFixed(2) + (i === ticks.length - 1 ? '+' : '') + '</span>';
+    });
+    $('legendTicks').innerHTML = h;
+  })();
+
+  /* ---------- dynamic layer ---------- */
+  var DT = [0.45, 0.62, 0.52, 0.78, 0.3];
+  var DO = [0.2, -0.4, 0.55, -0.15, -0.6];
+
+  function renderPitch(p) {
+    var P = pos(), x = P.x, y = P.y, out = '';
+    out += '<polygon points="' + x + ',' + y + ' ' + W + ',' + (GY - POST) + ' ' + W + ',' + (GY + POST) + '" fill="var(--accent)" fill-opacity="0.22"/>';
+    out += '<line x1="' + x + '" y1="' + y + '" x2="' + W + '" y2="' + GY + '" stroke="var(--accent)" stroke-width="0.25" stroke-dasharray="1 0.8" opacity="0.9"/>';
+
+    var vx = W - x, vy = GY - y, len = Math.max(Math.hypot(vx, vy), 0.5);
+    var nx = -vy / len, ny = vx / len;
+    for (var i = 0; i < state.def; i++) {
+      var t = DT[i], off = DO[i] * t * POST;
+      var dxp = x + t * vx + nx * off, dyp = y + t * vy + ny * off;
+      out += '<circle cx="' + dxp.toFixed(2) + '" cy="' + dyp.toFixed(2) + '" r="1" fill="var(--def)" stroke="var(--chalk)" stroke-width="0.2"/>';
+    }
+    var gx = 104, gy = GY;
+    if (state.gk === 'off') { gx = 101.5; gy = GY + (y - GY) * 0.15; }
+    if (state.gk === 'out') { gx = 103.5; gy = GY + (y <= GY ? 5 : -5); }
+    out += '<circle cx="' + gx + '" cy="' + gy.toFixed(2) + '" r="1.1" fill="var(--gk)" stroke="var(--chalk)" stroke-width="0.2"/>';
+
+    state.log.forEach(function (l) {
+      out += '<circle cx="' + l.x.toFixed(2) + '" cy="' + l.y.toFixed(2) + '" r="' + (0.8 + 3.2 * Math.sqrt(l.p)).toFixed(2) + '" fill="var(--accent)" fill-opacity="0.5" stroke="var(--chalk)" stroke-width="0.25"/>';
+    });
+
+    out += '<circle cx="' + x + '" cy="' + y + '" r="2.6" fill="none" stroke="var(--accent)" stroke-width="0.35"/>';
+    out += '<circle cx="' + x + '" cy="' + y + '" r="1.3" fill="#fff" stroke="#0f1a13" stroke-width="0.35"/>';
+    var ly = y < 8 ? y + 5.4 : y - 3.8;
+    var lx = clamp(x, vb.x + 7, vb.x + vb.w - 7);
+    out += '<text x="' + lx.toFixed(2) + '" y="' + ly.toFixed(2) + '" text-anchor="middle" font-size="2.7" style="font-family:var(--font-mono);font-weight:500" fill="#fff" stroke="#0b140f" stroke-width="0.7" paint-order="stroke">xG ' + fmt(p) + '</text>';
+    dyn.innerHTML = out;
+  }
+
+  var TIERS = [[0.05, 'Speculative'], [0.15, 'Half chance'], [0.35, 'Decent chance'], [0.6, 'Big chance'], [2, 'Sitter']];
+
+  function renderPanel(p) {
+    var P = pos(), g = geom(P.x, P.y), pen = state.sit === 'penalty';
+    $('xgVal').textContent = p.toFixed(2);
+    var ti = 0;
+    while (p >= TIERS[ti][0]) ti++;
+    $('tierName').textContent = TIERS[ti][1];
+    Array.prototype.forEach.call($('meter').children, function (el, i) { el.className = i <= ti ? 'on' : ''; });
+    if (p < 0.005) $('odds').textContent = 'Almost never scores from here.';
+    else if (p < 0.5) $('odds').textContent = 'Scores about 1 in ' + Math.round(1 / p) + ' from here.';
+    else $('odds').textContent = 'Scores about ' + Math.round(p * 10) + ' in 10 from here.';
+    $('sDist').textContent = g.d.toFixed(1) + ' m';
+    $('sAng').textContent = Math.round(g.a * 180 / Math.PI) + '°';
+    $('sOff').textContent = Math.abs(g.dy).toFixed(1) + ' m';
+
+    var ul = $('effects');
+    if (pen) {
+      ul.innerHTML = '';
+      $('effectsNote').textContent = 'A penalty kick is taken from the spot and fixed at 0.78, so position and defender settings do not apply.';
+      return;
+    }
+    var o = opts();
+    var rows = [
+      ['Body part', 'part', LAB.part[o.part]],
+      ['Situation', 'sit', LAB.sit[o.sit]],
+      ['Defenders in lane', 'def', String(o.def)],
+      ['Pressure', 'press', LAB.press[o.press]],
+      ['Goalkeeper', 'gk', LAB.gk[o.gk]]
+    ].map(function (r) {
+      var alt = Object.assign({}, o); alt[r[1]] = NEUTRAL[r[1]];
+      return { k: r[0], v: r[2], e: p - xgAt(P.x, P.y, alt) };
+    });
+    var max = Math.max(0.005, Math.max.apply(null, rows.map(function (r) { return Math.abs(r.e); })));
+    ul.innerHTML = rows.map(function (r) {
+      var pp = r.e * 100, zero = Math.abs(pp) < 0.05;
+      var cls = zero ? '' : (r.e > 0 ? 'up' : 'down');
+      var txt = zero ? '0.0 pp' : (pp > 0 ? '+' : '−') + Math.abs(pp).toFixed(1) + ' pp';
+      var w = zero ? 0 : Math.abs(r.e) / max * 50;
+      var left = r.e < 0 ? 50 - w : 50;
+      return '<li><div><div class="ef-k">' + r.k + '</div><div class="ef-name">' + r.v + '</div></div>'
+        + '<span class="ef-val ' + cls + '">' + txt + '</span>'
+        + '<span class="trk"><b class="' + cls + '" style="left:' + left.toFixed(1) + '%;width:' + w.toFixed(1) + '%"></b></span></li>';
+    }).join('');
+    $('effectsNote').textContent = 'Change in xG compared with a neutral setting for each factor (strong foot, open play, one defender, light pressure, set keeper). pp means percentage points.';
+  }
+
+  function renderLog() {
+    var n = state.log.length, sum = state.log.reduce(function (a, l) { return a + l.p; }, 0);
+    $('logline').textContent = n + (n === 1 ? ' shot' : ' shots') + ' logged' + (n ? ' · total xG ' + sum.toFixed(2) : '');
+  }
+
+  function render() {
+    var P = pos(), p = xgAt(P.x, P.y, opts());
+    renderPitch(p);
+    renderPanel(p);
+  }
+
+  /* ---------- view ---------- */
+  function applyView() {
+    vb = VIEWS[state.view];
+    svg.setAttribute('viewBox', vb.x + ' ' + vb.y + ' ' + vb.w + ' ' + vb.h);
+    box.style.setProperty('--ar', (vb.w / vb.h).toFixed(4));
+    state.x = clamp(state.x, Math.max(0, vb.x), W);
+    document.querySelector('input[name="view"][value="' + state.view + '"]').checked = true;
+  }
+
+  /* ---------- controls ---------- */
+  var form = $('controls');
+  function syncForm() {
+    form.elements.part.value = state.part;
+    form.elements.pressure.value = state.press;
+    form.elements.keeper.value = state.gk;
+    form.elements.defenders.value = state.def;
+    $('defOut').textContent = state.def;
+    $('situation').value = state.sit;
+    $('mods').disabled = state.sit === 'penalty';
+    svg.style.cursor = state.sit === 'penalty' ? 'default' : 'crosshair';
+  }
+  form.addEventListener('input', function () {
+    state.part = form.elements.part.value;
+    state.press = form.elements.pressure.value;
+    state.gk = form.elements.keeper.value;
+    state.def = parseInt(form.elements.defenders.value, 10);
+    state.sit = $('situation').value;
+    syncForm(); render(); queueHeat();
+  });
+  document.querySelectorAll('input[name="view"]').forEach(function (r) {
+    r.addEventListener('change', function () { state.view = r.value; applyView(); render(); });
+  });
+  $('heatOn').addEventListener('change', function (e) { state.heat = e.target.checked; renderHeat(); });
+  $('logBtn').addEventListener('click', function () {
+    var P = pos();
+    if (state.log.length >= 60) state.log.shift();
+    state.log.push({ x: P.x, y: P.y, p: xgAt(P.x, P.y, opts()) });
+    renderLog(); render();
+  });
+  $('clearBtn').addEventListener('click', function () { state.log = []; renderLog(); render(); });
+  $('resetBtn').addEventListener('click', function () {
+    Object.assign(state, DEFAULTS);
+    syncForm(); applyView(); render(); renderHeat();
+  });
+
+  /* ---------- pointer and keyboard ---------- */
+  function toPitch(e) {
+    var pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    var q = pt.matrixTransform(svg.getScreenCTM().inverse());
+    return { x: clamp(q.x, Math.max(0, vb.x), W), y: clamp(q.y, 0, H) };
+  }
+  var dragging = false;
+  function place(e) {
+    var q = toPitch(e);
+    state.x = q.x; state.y = q.y;
+    render();
+  }
+  svg.addEventListener('pointerdown', function (e) {
+    if (state.sit === 'penalty') return;
+    dragging = true; tip.hidden = true;
+    svg.setPointerCapture(e.pointerId);
+    svg.focus({ preventScroll: true });
+    place(e);
+  });
+  svg.addEventListener('pointermove', function (e) {
+    if (dragging) { place(e); return; }
+    if (e.pointerType !== 'mouse' || state.sit === 'penalty') { tip.hidden = true; return; }
+    var q = toPitch(e), r = box.getBoundingClientRect();
+    tip.textContent = 'xG ' + fmt(xgAt(q.x, q.y, opts()));
+    tip.style.left = (e.clientX - r.left) + 'px';
+    tip.style.top = (e.clientY - r.top) + 'px';
+    tip.hidden = false;
+  });
+  function endDrag() { dragging = false; }
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+  svg.addEventListener('pointerleave', function () { tip.hidden = true; });
+  svg.addEventListener('keydown', function (e) {
+    if (state.sit === 'penalty') return;
+    var step = e.shiftKey ? 5 : 1, dx = 0, dy = 0;
+    if (e.key === 'ArrowLeft') dx = -step;
+    else if (e.key === 'ArrowRight') dx = step;
+    else if (e.key === 'ArrowUp') dy = -step;
+    else if (e.key === 'ArrowDown') dy = step;
+    else return;
+    e.preventDefault();
+    state.x = clamp(state.x + dx, Math.max(0, vb.x), W);
+    state.y = clamp(state.y + dy, 0, H);
+    render();
+  });
+
+  /* ---------- start ---------- */
+  syncForm(); applyView(); renderLog(); render(); renderHeat();
+})();
+</script>
+
+</body></html>
